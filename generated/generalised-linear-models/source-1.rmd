@@ -1,0 +1,365 @@
+---
+title: "Modelling 50-Year Survival Among University of Adelaide Graduates"
+author: "Thomas Barnes"
+output:
+  html_document:
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.align = "center"
+)
+```
+This notebook accompanies the full report on survival for 50 years after graduation among University of Adelaide graduates.
+
+It follows the analysis from exploratory plots to model selection, with the original R code throughout.
+
+# Data and exploration
+
+*Companion to report Sections 2-3.*
+
+## Import and inspect the data
+
+The data record survival counts for graduates from 1938-1947, grouped by faculty, sex and graduation year.
+
+Faculty codes denote arts (A), engineering (E), medicine (M) and science (S).
+
+
+```{r}
+data = read.csv('https://raw.githubusercontent.com/richardpmann/richardpmann.github.io/refs/heads/main/MATH3823/Datasets/adelaide-48.csv')
+attach(data)
+as.factor(faculty)
+as.factor(sex)
+summary(data)
+```
+
+## Compare observed survival rates
+
+These boxplots compare the proportion surviving for 50 years after graduation across faculties, sexes and graduation years.
+
+```{r}
+par(mfrow = c(1,3))
+# EDA
+boxplot(survive/total ~ faculty, xlab = 'Faculty', ylab = 'Survival Probability', main = 'Survival Probability by Faculty')
+boxplot(survive/total ~ sex, xlab = "Sex", ylab = "Survival Probability", main = "Survival Probability by Sex")
+boxplot(survive/total ~ year, xlab = "Year", ylab = "Survival Probability", main = "Survival Probability by Year")
+```
+
+## Inspect the overall distribution
+
+The histogram shows how observed survival proportions vary across the recorded groups.
+
+```{r}
+par(mfrow = c(1,1))
+hist(survive/total, main = 'Histogram of Chances of Survival', xlab = 'Survival Rate', breaks = 10)
+```
+
+# Baseline model
+
+*Companion to report Sections 4-5.*
+
+## Fit the full binomial model
+
+The initial model includes graduation year, faculty and sex, using a logit link.
+
+The summaries and diagnostic plots provide a starting point for model comparison.
+
+```{r}
+# Question 1
+model1 = glm(
+  cbind(survive, total - survive) ~ year + faculty + sex,
+  family = binomial
+)
+summary(model1)
+
+anova(model1)
+
+par(mfrow = c(1,2))
+plot(model1, which = 1:2, main = 'Model 1')
+```
+
+## Predict survival for two graduate profiles
+
+The model estimates survival probabilities and standard errors for two example profiles.
+
+The female engineering profile has no direct observations in the dataset, so its prediction relies on the model's assumptions.
+
+```{r}
+
+ex_data1 = data.frame(sex = c('M', 'F'), year = c(1941, 1938), faculty = c('M', 'E'))
+ex_data_fit = predict.glm(model1, ex_data1, type = 'response', se.fit = T)$fit
+ex_data_se = predict.glm(model1, ex_data1, type = 'response', se.fit = T)$se.fit
+cat("Fitted Values:\n", ex_data_fit, "\n", 
+    "Standard Errors:\n", ex_data_se, "\n")
+```
+
+# Model selection
+
+*Companion to report Section 5.1.*
+
+## Remove graduation year
+
+Model 2 retains faculty and sex, testing whether graduation year adds useful explanatory power.
+
+The likelihood ratio test, AIC and diagnostic plots support comparison with the full model.
+
+```{r}
+# Simplifying model
+model2 = glm(
+  cbind(survive, total - survive) ~  faculty + sex,
+  family = binomial
+)
+summary(model2)
+anova(model2)
+anova(model2, model1, test = 'Chisq')
+AIC(model2, model1)
+cat(" Deviance of model1: ", deviance(model1), "\n",
+    "Deviance of model2: ", deviance(model2), "\n",
+    "AIC of model1: ", AIC(model1), "\n",
+    "AIC of model2: ", AIC(model2), "\n")
+par(mfrow = c(1,2))
+plot(model2, which = 1:2, main = 'Model 2')
+```
+
+## Combine medicine and arts
+
+Model 3 groups medicine and arts as MA, reducing the number of faculty parameters.
+
+The comparison checks whether this simplification materially worsens model fit.
+
+```{r}
+# Generate a combine M and A factor levels into MA
+faculty2 = faculty
+faculty2[faculty2 == 'M'] = 'MA'
+faculty2[faculty2 == 'A'] = 'MA'
+faculty2 = as.factor(faculty2)
+
+model3 = glm(cbind(survive, total - survive) ~ faculty2 + sex,
+             family = binomial
+)
+summary(model3)
+anova(model3, model2, test = 'Chisq')
+par(mfrow = c(2,2))
+plot(model2, which = 1:2, main = 'Model 2')
+plot(model3, which = 1:2, main = 'Model 3')
+```
+
+## Combine science and engineering
+
+Model 4 also groups science and engineering as SE, leaving two faculty groups alongside sex.
+
+The report selects this model as its preferred balance of fit and simplicity for the combined data.
+
+```{r}
+faculty3 = faculty
+faculty3[faculty3 == 'M'] = 'MA'
+faculty3[faculty3 == 'A'] = 'MA'
+faculty3[faculty3 == 'S'] = 'SE'
+faculty3[faculty3 == 'E'] = 'SE'
+faculty3 = as.factor(faculty3)
+
+model4 = glm(cbind(survive, total - survive) ~ faculty3 + sex,
+                 family = binomial
+)
+summary(model4)
+anova(model4, model3, test = 'Chisq')
+anova(model4, model1, test = 'Chisq')
+par(mfrow = c(2,2))
+plot(model3, which = 1:2, main = 'Model 3')
+plot(model4, which = 1:2, main = 'Model 4')
+```
+
+# Further comparisons
+
+*Further checks from report Sections 5.2-5.3.*
+
+## Test a faculty-sex interaction
+
+Model 5 tests whether the association between faculty group and survival differs by sex.
+
+```{r}
+
+model5 = glm(cbind(survive, total-survive) ~ faculty3 * sex,
+             family = binomial
+)
+
+summary(model5)
+anova(model4, model5, test = 'Chisq')
+```
+
+## Test interactions with graduation year
+
+These tests assess whether the year association differs by sex or faculty group, compared with a model retaining all three main effects.
+
+```{r}
+year_baseline = glm(cbind(survive, total-survive) ~ faculty3 + sex + year,
+                    family = binomial)
+sex_year_model = glm(cbind(survive, total-survive) ~ faculty3 + sex*year,
+                     family = binomial)
+faculty_year_model = glm(cbind(survive, total-survive) ~ faculty3*year + sex,
+                         family = binomial)
+anova(year_baseline, sex_year_model, test = 'Chisq')
+anova(year_baseline, faculty_year_model, test = 'Chisq')
+```
+
+## Group graduation years around the war
+
+This model compares pre-war, wartime and post-war graduation groups while retaining faculty group and sex.
+
+The accompanying boxplot shows the observed survival proportions in each period.
+
+AIC compares this model with the original linear-year model, these two models are not nested.
+
+```{r}
+pre_post_war = cut(year, breaks = c(1930, 1939, 1945, 2000), labels = c("Pre-War", "During-War", "Post-War"))
+pre_post_war = as.factor(pre_post_war)
+
+war_model = glm(cbind(survive, total-survive) ~ pre_post_war + faculty3 + sex,
+                family = binomial)
+summary(war_model)
+anova(model4, war_model, test = 'Chisq')
+AIC(model1, war_model)
+
+
+par(mfrow = c(1,1))
+boxplot(survive/total ~ pre_post_war, xlab = '', ylab = 'Survival Probability', main = 'Survival Probability by Pre/During/Post War')
+
+```
+
+## Compare graduation before and from 1940
+
+A second time grouping compares graduation before 1940 with graduation in 1940 or later.
+
+The likelihood ratio test checks whether this split improves on Model 4.
+
+```{r}
+decade_split = cut(year, breaks = c(1930, 1939, 2000), labels = c("Pre-1940", "Post-1940"))
+decade_split = as.factor(decade_split)
+
+decade_model = glm(cbind(survive, total-survive) ~ decade_split + faculty3 + sex,
+                family = binomial)
+summary(decade_model)
+anova(model4, decade_model, test = 'Chisq')
+```
+
+# Analysis by sex
+
+The following models examine faculty and graduation year separately for male and female graduates.
+
+## Prepare the subsets
+
+The data are split by sex, with separate variable names for each subset.
+
+```{r}
+
+male_data = data[data$sex == "M", ]
+female_data = data[data$sex == "F", ]
+colnames(male_data) <- paste0(colnames(male_data), "_M")
+colnames(female_data) <- paste0(colnames(female_data), "_F")
+attach(male_data)
+attach(female_data)
+as.factor(faculty_M)
+as.factor(faculty_F)
+
+
+
+
+faculty3_F = faculty_F
+faculty3_F[faculty3_F %in% c('M', 'A')] = "MA"
+faculty3_F[faculty3_F %in% c('S', 'E')] = "SE"
+```
+
+## Male graduates: assess graduation year
+
+The first comparison tests whether graduation year improves a model containing faculty.
+
+```{r}
+male_model1 = glm(cbind(survive_M, total_M-survive_M) ~ faculty_M + year_M,
+                 family = binomial
+)
+
+summary(male_model1)
+anova(male_model1)
+
+male_model2 = glm(cbind(survive_M, total_M-survive_M) ~ faculty_M,
+                  family = binomial
+)
+summary(male_model2)
+anova(male_model2, male_model1, test = "Chisq")
+```
+
+## Male graduates: combine medicine and arts
+
+The next model groups medicine and arts, then compares the fit with separate faculty levels.
+
+```{r}
+faculty2_M = faculty_M
+faculty2_M[faculty2_M %in% c('M', 'A')] = 'MA'
+faculty2_M = as.factor(faculty2_M)
+
+male_model3 = glm(cbind(survive_M, total_M-survive_M) ~ faculty2_M,
+                  family = binomial
+)
+summary(male_model3)
+anova(male_model3, male_model2, test = "Chisq")
+```
+
+## Male graduates: retain two faculty groups
+
+Science and engineering are also combined, giving the report's preferred model for male graduates.
+
+```{r}
+faculty3_M = faculty_M
+faculty3_M[faculty3_M %in% c('M', 'A')] = "MA"
+faculty3_M[faculty3_M %in% c('S', 'E')] = "SE"
+faculty3_M = as.factor(faculty3_M)
+male_model4 = glm(cbind(survive_M, total_M-survive_M) ~ faculty3_M,
+                                family = binomial
+)
+summary(male_model4)
+anova(male_model4, male_model3, test = "Chisq")
+```
+
+## Female graduates: compare simpler models
+
+These comparisons assess models with faculty and year, faculty alone, and an intercept only.
+
+The report finds insufficient evidence at the 5% level to prefer the predictors over the intercept-only model.
+
+```{r}
+female_model1 = glm(cbind(survive_F, total_F-survive_F) ~ faculty_F + year_F,
+                    family = binomial
+)
+summary(female_model1)
+anova(female_model1)
+
+female_model2 = glm(cbind(survive_F, total_F-survive_F) ~ faculty_F,
+                    family = binomial
+)
+summary(female_model2)
+anova(female_model2, female_model1, test = "Chisq")
+
+female_model3 = glm(cbind(survive_F, total_F-survive_F) ~ 1,
+                    family = binomial
+)
+summary(female_model3)
+anova(female_model3, female_model2, test = "Chisq")
+anova(female_model3, female_model1, test = "Chisq")
+plot(female_model3)
+```
+
+## Compare the observed patterns by sex
+
+The final plots compare faculty and year patterns using a shared survival-rate scale.
+
+```{r}
+par(mfrow = c(2,2))
+boxplot(survive_M/total_M ~ faculty_M, xlab = 'Faculty', ylab = 'Survival Probability', main = 'Survival Probability by Faculty (Male)', ylim = c(min(data$survive/data$total, na.rm = TRUE), max(data$survive/data$total, na.rm = TRUE)), col = 'turquoise')
+boxplot(survive_F/total_F ~ faculty_F, xlab = 'Faculty', ylab = 'Survival Probability', main = 'Survival Probability by Faculty (Female)', ylim = c(min(data$survive/data$total, na.rm = TRUE), max(data$survive/data$total, na.rm = TRUE)), col = 'pink')
+boxplot(survive_M/total_M ~ year_M, xlab = "Year", ylab = "Survival Probability", main = "Survival Probability by Year (Male)", ylim = c(min(data$survive/data$total, na.rm = TRUE), max(data$survive/data$total, na.rm = TRUE)), col = 'turquoise')
+boxplot(survive_F/total_F ~ year_F, xlab = "Year", ylab = "Survival Probability", main = "Survival Probability by Year (Female)", ylim = c(min(data$survive/data$total, na.rm = TRUE), max(data$survive/data$total, na.rm = TRUE)), col = 'pink')
+```
+
+See the report for the statistical reasoning, detailed results and interpretation.
