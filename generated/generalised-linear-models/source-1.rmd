@@ -348,7 +348,7 @@ summary(female_model3)
 anova(female_model3, female_model2, test = "Chisq")
 anova(female_model3, female_model1, test = "Chisq")
 par(mfrow=c(1,2))
-plot(female_model3)
+plot(female_model3, which = 1:2)
 ```
 
 ## Compare the observed patterns by sex
